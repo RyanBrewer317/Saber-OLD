@@ -1,0 +1,28 @@
+LLVM_9 {
+  global:
+    LLVMRemarkStringGetData;
+    LLVMRemarkStringGetLen;
+    LLVMRemarkDebugLocGetSourceFilePath;
+    LLVMRemarkDebugLocGetSourceLine;
+    LLVMRemarkDebugLocGetSourceColumn;
+    LLVMRemarkArgGetKey;
+    LLVMRemarkArgGetValue;
+    LLVMRemarkArgGetDebugLoc;
+    LLVMRemarkEntryDispose;
+    LLVMRemarkEntryGetType;
+    LLVMRemarkEntryGetPassName;
+    LLVMRemarkEntryGetRemarkName;
+    LLVMRemarkEntryGetFunctionName;
+    LLVMRemarkEntryGetDebugLoc;
+    LLVMRemarkEntryGetHotness;
+    LLVMRemarkEntryGetNumArgs;
+    LLVMRemarkEntryGetFirstArg;
+    LLVMRemarkEntryGetNextArg;
+    LLVMRemarkParserCreateYAML;
+    LLVMRemarkParserGetNext;
+    LLVMRemarkParserHasError;
+    LLVMRemarkParserGetErrorMessage;
+    LLVMRemarkParserDispose;
+    LLVMRemarkVersion;
+  local: *;
+};

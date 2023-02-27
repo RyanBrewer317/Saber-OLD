@@ -1,0 +1,39 @@
+cabal-version:      2.4
+name:               saber
+version:            0.1.0.0
+
+-- A short (one-line) description of the package.
+synopsis: A modern functional language for safe performance-critical code.
+
+-- A longer description of the package.
+description: A modern functional language for safe performance-critical code. 
+    Size types check overflow, nontermination, and out-of-bounds indexing.
+    Pointer types allow for unboxed representations and memory layout reasoning.
+    Intersection types allow bitwise operations to be applied to any value.
+    First-class arenas allow quarantined inline assembly and GC-free hot paths.
+    Completely decidable type inference minimizes the effort of using these features.
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+license:            GPL-3.0-or-later
+author:             Ryan Brewer
+maintainer:         ryanbrew317@gmail.com
+
+-- A copyright notice.
+-- copyright:
+-- category:
+extra-source-files: CHANGELOG.md
+
+executable saber
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    other-modules: Parser, Grammar, Gen, Desugar, ANF, MyLLVM, Typecheck
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:    base ^>=4.13.0.0, parsec >= 3.1.14.0, containers >= 0.6.2.1, llvm-hs-pure >= 9 && < 10, llvm-hs-pretty >= 0.9 && < 1, text >= 2.0.1, transformers >= 0.5.6.2, process >= 1.6.9.0
+    hs-source-dirs:   app, src
+    default-language: Haskell2010
