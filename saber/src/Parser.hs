@@ -30,11 +30,10 @@ parseIntLit = P.try $ do
 parseLambda :: Parser STerm
 parseLambda = do
     pos <- P.getPosition
-    P.try $ P.char '\\'
+    P.try $ P.string "fn"
     P.spaces
-    Loc {val=(SVar x)} <- parseVar
+    x <- ((\Loc{val=(SVar x)}->x) <$> P.try (P.between (P.char '(') (P.char ')') (P.spaces *> parseVar <* P.spaces))) <|> ((\()->"_") <$> P.between (P.char '(') (P.char ')') P.spaces)
     P.spaces
-    P.char '.'
     locate pos . SLam x <$> parseTerm
 
 parseLet :: Parser STerm
