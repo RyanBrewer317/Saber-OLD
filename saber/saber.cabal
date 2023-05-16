@@ -9,8 +9,7 @@ synopsis: A modern functional language for safe performance-critical code.
 description: A modern functional language for safe performance-critical code. 
     Size types check overflow, nontermination, and out-of-bounds indexing.
     Pointer types allow for unboxed representations and memory layout reasoning.
-    Intersection types allow bitwise operations to be applied to any value.
-    First-class arenas allow quarantined inline assembly and GC-free hot paths.
+    First-class arenas allow GC-free hot paths.
     Completely decidable type inference minimizes the effort of using these features.
 
 -- A URL where users can report bugs.
@@ -30,10 +29,18 @@ executable saber
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: Parser, Grammar, Gen, Desugar, ANF, MyLLVM, Typecheck
+    other-modules: Grammar, Parser, AST, Typecheck, Specialize, ANF, MyLLVM, Imp
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base ^>=4.13.0.0, parsec >= 3.1.14.0, containers >= 0.6.2.1, llvm-hs-pure >= 9 && < 10, llvm-hs-pretty >= 0.9 && < 1, text >= 2.0.1, transformers >= 0.5.6.2, process >= 1.6.9.0
+    build-depends:      base ^>=4.13.0.0, 
+                        parsec >= 3.1.14.0, 
+                        containers >= 0.6.2.1, 
+                        llvm-hs-pure >= 9 && < 10, 
+                        llvm-hs-pretty >= 0.9 && < 1, 
+                        text >= 2.0.1, 
+                        sqlite-simple >= 0.4.18.2, 
+                        directory >= 1.3.6.0, 
+                        process >= 1.6.17.0
     hs-source-dirs:   app, src
     default-language: Haskell2010

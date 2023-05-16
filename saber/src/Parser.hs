@@ -1,66 +1,90 @@
 module Parser where
-
-import qualified Text.Parsec as P
-import Text.Parsec ( (<|>) )
-import Grammar ( Syntax(SApp, SInt, SLam, SVar, SLet), STerm(..), Located (..) )
-import qualified Text.Parsec.Pos as P
-import Desugar (locate)
+import Grammar
+import Text.Parsec as P
+import Data.Maybe (fromMaybe)
 
 type Parser = P.Parsec String ()
 
 run :: String -> Parser a -> String -> Either P.ParseError a
 run fn p = P.runParser p () fn
 
-emptyPos :: P.SourcePos
-emptyPos = P.newPos "" 0 0
+reserved :: String -> Parser String
+reserved s = P.string s <* P.notFollowedBy (P.alphaNum <|> P.char '_')
 
-parseVar :: Parser STerm
-parseVar = P.try $ do
-    pos <- P.getPosition
+ws :: Parser ()
+ws = P.spaces
+
+parseVarString :: Parser String
+parseVarString = P.try $ do
     first <- P.letter
     rest <- P.many $ P.alphaNum <|> P.char '_'
-    return $ locate pos $ SVar $ first : rest
+    return $ first : rest
 
-parseIntLit :: Parser STerm
-parseIntLit = P.try $ do
+parseVarOrLet :: Parser ExprSyntax
+parseVarOrLet = do
     pos <- P.getPosition
-    val <- read <$> P.many1 P.digit
-    return $ locate pos $ SInt val
+    x <- parseVarString <?> "identifier"
+    ws
+    mbLet <- P.optionMaybe (P.string "=" >> parseTerm >>= \v-> P.char ';' >> parseTerm >>= \e-> return (v, e)) <?> "binder"
+    case mbLet of
+        Nothing -> {- parse mutation, then if that fails -} return $ VarSyntax pos x
+        Just (v, e) -> return $ LetSyntax pos x v e
 
-parseLambda :: Parser STerm
+parseInt :: Parser ExprSyntax
+parseInt = P.try $ do
+    pos <- P.getPosition
+    val <- read <$> P.many1 P.digit <?> "integer literal"
+    return $ IntLitSyntax pos val
+
+parseLambda :: Parser ExprSyntax
 parseLambda = do
     pos <- P.getPosition
-    P.try $ P.string "fn"
-    P.spaces
-    x <- ((\Loc{val=(SVar x)}->x) <$> P.try (P.between (P.char '(') (P.char ')') (P.spaces *> parseVar <* P.spaces))) <|> ((\()->"_") <$> P.between (P.char '(') (P.char ')') P.spaces)
-    P.spaces
-    locate pos . SLam x <$> parseTerm
+    P.try (reserved "fn" <?> "lambda")
+    ws
+    P.char '('
+    ws
+    mbArg <- P.optionMaybe parseVarString <?> "argument"
+    let arg = fromMaybe "_" mbArg
+    ws
+    P.char ')'
+    LamSyntax pos arg <$> parseTerm
 
-parseLet :: Parser STerm
-parseLet = do
-    pos <- P.getPosition
-    P.try $ P.string "let"
-    P.space
-    P.spaces
-    var <- parseVar
-    let Loc {val=(SVar x)} = var
-    P.spaces
-    P.char '='
-    val <- parseTerm
-    P.string ";"
-    locate pos . SLet x val <$> parseTerm
-
-parseParenthetical :: Parser STerm
+parseParenthetical :: Parser ExprSyntax
 parseParenthetical = P.between (P.char '(') (P.char ')') parseTerm
 
-parseTerm :: Parser STerm
+parseTerm :: Parser ExprSyntax
 parseTerm = do
-    P.spaces
+    ws
+    P.notFollowedBy $ reserved "def"
     pos <- P.getPosition
-    t <- parseLet <|> P.try parseParenthetical <|> parseLambda <|> parseVar <|> parseIntLit
-    P.spaces
-    mbCall <- P.optionMaybe parseParenthetical
-    P.spaces
-    return $ case mbCall of
-            Nothing -> t
-            Just arg -> locate pos $ SApp t arg
+    expr <- (parseLambda <|> parseVarOrLet <|> parseInt <|> parseParenthetical) <?> "expression"
+    ws
+    expr <- fold expr . reverse <$> P.many tryCall
+    ws
+    return expr
+    where
+        fold = foldr ($)
+        tryCall = do
+            pos <- P.getPosition
+            call <- parseTerm <?> "function call"
+            ws
+            return $ \expr -> AppSyntax pos expr call
+
+parseFuncDec :: Parser StmtSyntax
+parseFuncDec = do
+    pos <- P.getPosition
+    P.try (reserved "def" <?> "function declaration")
+    ws
+    name <- parseVarString
+    ws
+    args <- P.many $ parseVarString <* ws
+    P.char ':'
+    e <- parseTerm
+    case args of
+        arg : rest -> do
+            e <- return $ foldr (LamSyntax pos) e rest
+            return $ FuncDecSyntax pos name arg e
+        [] -> return $ FuncDecSyntax pos name "_" e
+
+parseStmts :: Parser [StmtSyntax]
+parseStmts = P.many1 parseFuncDec <* P.eof

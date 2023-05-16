@@ -1,105 +1,142 @@
+{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use lambda-case" #-}
-{-# HLINT ignore "Use <&>" #-}
-{-# LANGUAGE InstanceSigs #-}
+{-# HLINT ignore "Use >=>" #-}
 module Typecheck where
 import Grammar
-import Gen
-import Data.IORef
-import Control.Monad.Trans.Except
-import Control.Monad.Trans.Class
-import Data.List (intercalate)
+import Data.Foldable (foldrM)
+import qualified Data.Text as Text
+import Prelude hiding (fail)
+import Data.IORef (newIORef, IORef, readIORef, writeIORef)
+import Data.List (union, intercalate)
+import GHC.IOArray (IOArray, newIOArray, writeIOArray, readIOArray)
+import Database.SQLite.Simple (query_, open, Query (Query), FromRow (fromRow), field, close)
 
-class TempType a where
-    copy :: Located a -> IO (Located a)
+assignBasicTypes :: [Stmt] -> SB (IOArray Int (IORef BaseType))
+assignBasicTypes ast = do
+    dummy <- run $ newIORef $ TConstr "" []
+    types <- run $ newIOArray (0, 1000000) dummy
+    basicStmts types ast
+    return types
 
-instance TempType TempPolyType where
-    copy :: Located TempPolyType -> IO (Located TempPolyType)
-    copy lpt = case val lpt of
-      TempMono tm -> copy (Loc tm $ start lpt) >>= \cp-> return $ Loc (TempMono $ val cp) (start cp)
-      TempForall ir tpt -> copy (Loc tpt $ start lpt) >>= \cp-> readIORef ir >>= copy >>= newIORef >>= \cp2-> return $ Loc (TempForall cp2 $ val cp) $ start cp
+basicStmts :: IOArray Int (IORef BaseType) -> [Stmt] -> SB ()
+basicStmts types ast =
+    case ast of
+        [] -> return ()
+        stmt:stmts -> basicStmt types stmt >> basicStmts types stmts
 
-instance TempType TempMonotype where
-    copy :: Located TempMonotype -> IO (Located TempMonotype)
-    copy lmt = case val lmt of
-        TempTVar ir -> readIORef ir >>= copy >>= newIORef >>= \cp-> return $ Loc (TempTVar cp) $ start lmt
-        TempTConstr s tms -> mapM copy tms >>= \cp-> return $ Loc (TempTConstr s cp) $ start lmt
-        Uninstantiated i -> return $ Loc (Uninstantiated i) $ start lmt
+newtype RealName = RealName String deriving Eq
+instance FromRow RealName where
+    fromRow = RealName <$> field
 
-instantiateNoCopy :: Gen -> Located TempPolyType -> IO (Gen, Located TempPolyType)
-instantiateNoCopy gen lpt = case val lpt of
-    TempMono tm -> return (gen, lpt)
-    TempForall ir tpt -> withFreshM gen $ \gen2 i-> writeIORef ir (Loc (Uninstantiated i) $ start lpt) >> instantiateNoCopy gen2 (Loc tpt $ start lpt)
+basicStmt :: IOArray Int (IORef BaseType) -> Stmt -> SB ()
+basicStmt types stmt = case stmt of
+    FuncDec id argid e -> do
+        argti <- fresh $ "type variable id for argument " ++ show argid ++ " of top-level function " ++ show id
+        isMain <- (id==) <$> getMain
+        argt <- run $ newIORef $ if isMain then TConstr "_Void" [] else TVar argti
+        run $ writeIOArray types argid argt
+        basicExpr types e
+        et <- run $ readIOArray types $ getId e
+        t <- run $ newIORef $ TConstr "Function" [argt, et]
+        t <- run $ generalize t
+        argt <- run $ getFirstArgType t
+        run $ writeIOArray types argid argt
+        run $ writeIOArray types id t
 
-instantiate :: Gen -> Located TempPolyType -> IO (Gen, Located TempPolyType)
-instantiate gen pt = copy pt >>= instantiateNoCopy gen
+getFirstArgType :: IORef BaseType -> IO (IORef BaseType)
+getFirstArgType io = readIORef io >>= \case
+    Forall vio tio -> getFirstArgType tio
+    TConstr "Function" [a, _] -> return a
+    TConstr _ _ -> error ""
+    TVar _ -> error ""
 
-algoJ :: Gen -> TempContext -> Located Term -> ExceptT String IO (Gen, TempTypedLoc TempTerm)
-algoJ gen gamma loc@Loc{val=t, start=pos} = case t of
-    Var s n -> case gamma |- n of
-        Nothing -> error "undefined var during algoJ"
-        Just pt -> do
-            (gen2, pt2) <- lift (instantiate gen (Loc pt $ start loc))
-            return (gen2, TTLoc (TempVar s n) pos $ val pt2)
-    IntLit n -> return (gen, TTLoc (TempInt n) pos (TempMono $ TempTConstr "Int" []))
-    Lam s n locE@Loc{val=e} -> withFreshM gen $ \gen2 i-> do
-        t <- lift $ newIORef $ Loc (Uninstantiated i) $ start loc
-        (gen2, ttlt) <- algoJ gen (gamma :> (n, TempMono $ TempTVar t)) locE
-        let TTLoc{ttype=TempMono ty, ttval=tl} = ttlt
-        return (gen2, TTLoc tl pos (TempMono $ TempTConstr "->" [Loc (TempTVar t) $ start loc, Loc ty $ start locE]))
-    App locF@Loc{val=f} locA@Loc{val=a} -> do
-        (gen2, ttltF) <- algoJ gen  gamma locF
-        (gen3, ttltA) <- algoJ gen2 gamma locA
-        withFreshM gen3 $ \gen4 i-> do
-            let TTLoc{ttype=TempMono tf} = ttltF
-            let TTLoc{ttype=TempMono ta} = ttltA
-            ir <- lift (newIORef $ Loc (Uninstantiated i) $ start locF)
-            let outT = TempTVar ir
-            unify (Loc{val=TempTConstr "->" [Loc ta $ start locA, Loc outT $ start locF], start=start locF}) Loc{val=tf, start=start locF}
-            return (gen4, TTLoc (TempApp ttltF ttltA) pos (TempMono outT))
-    Let s n locV@Loc{val=v} locE@Loc{val=e} -> do
-        (gen2, ttltV) <- algoJ gen gamma locV
-        let TTLoc{ttype=tv} = ttltV
-        tv2 <- lift (generalize $ Loc tv $ ttstart ttltV)
-        (gen3, ttltE) <- algoJ gen2 (gamma :> (n, tv2)) locE
-        let TTLoc{ttype=te} = ttltE
-        return (gen3, TTLoc (TempLet s n ttltV ttltE) pos te)
+basicExpr :: IOArray Int (IORef BaseType) -> Expr -> SB ()
+basicExpr types expr = case expr of
+    Var id isGlobal i -> do
+        t <- run $ readIOArray types i
+        t <- run $ instantiate [] t
+        run $ writeIOArray types id t
+    IntLit id -> run (newIORef (TConstr "Int" [])) >>= \t->run $ writeIOArray types id t
+    Lam id xid e -> do
+        xtype <- fresh $ "type variable id for the type of argument " ++ show xid ++ " in lambda " ++ show id
+        xt <- run $ newIORef $ TVar xtype
+        run $ writeIOArray types xid xt
+        basicExpr types e
+        etype <- run $ readIOArray types $ getId e
+        t <- run $ newIORef $ TConstr "Function" [xt, etype]
+        run $ writeIOArray types id t
+    App id foo bar -> do
+        basicExpr types foo
+        fooT <- run $ readIOArray types (getId foo)
+        basicExpr types bar
+        barT <- run $ readIOArray types (getId bar)
+        ti <- fresh $ "type variable id for the type of app "++show id
+        t <- run $ newIORef $ TVar ti
+        fooT2 <- run $ newIORef $ TConstr "Function" [barT, t]
+        run $ writeIOArray types id t
+        unify fooT fooT2
+    Let id xid v e -> do
+        basicExpr types v
+        vt <- run $ readIOArray types $ getId v
+        xt <- run $ generalize vt
+        run $ writeIOArray types xid xt
+        basicExpr types e
+        et <- run $ readIOArray types $ getId e
+        run $ writeIOArray types id et
 
-unify :: Located TempMonotype -> Located TempMonotype -> ExceptT String IO ()
-unify lt1 lt2 =
-    let Loc{val=t1, start=pos} = lt1 in
-    let Loc{val=t2} = lt2 in
+showtype :: IORef BaseType -> IO String
+showtype io = readIORef io >>= \case
+    Forall vio tio -> readIORef vio >>= \case
+        TVar i -> showtype tio >>= \s-> return $ "forall x" ++ show i ++ ". " ++ s
+        _ -> showtype tio
+    TVar i -> return $ "x" ++ show i
+    TConstr s ios -> mapM showtype ios >>= \ss-> return $ s ++ " " ++ unwords ss
+
+instantiate :: [(Int, IORef BaseType)] -> IORef BaseType -> IO (IORef BaseType)
+instantiate renames io = readIORef io >>= \case
+    Forall vio tio -> readIORef vio >>= \case
+        TVar id -> do
+            vio2 <- newIORef (TVar id)
+            tio2 <- instantiate ((id, vio2):renames) tio
+            newIORef $ Forall vio2 tio2
+        _ -> instantiate renames tio
+    TVar id -> case lookup id renames of
+        Nothing -> return io
+        Just vio -> return vio
+    TConstr s ios -> mapM (instantiate renames) ios >>= \ios2->newIORef (TConstr s ios2)
+
+generalize :: IORef BaseType -> IO (IORef BaseType)
+generalize io = do
+    fvs <- freevars [] io
+    foldrM (\a b->newIORef $ Forall a b) io fvs
+    where freevars skips io = do
+            t <- readIORef io
+            case t of
+                TVar id -> return [io | id `notElem` skips]
+                Forall io u -> readIORef io >>= \case
+                    TVar id -> freevars (id:skips) u
+                    _ -> freevars skips u
+                TConstr s ts -> mapM (freevars skips) ts >>= \ls->return $ foldr union [] ls
+
+unify :: IORef BaseType -> IORef BaseType -> SB ()
+unify t1io t2io = do
+    t1 <- run $ readIORef t1io
+    t2 <- run $ readIORef t2io
     case t1 of
-        TempTVar ir -> do
-            mt <- lift $ readIORef ir
-            case val mt of
-                Uninstantiated _ -> lift $ writeIORef ir lt2
-                _ -> unify mt lt2
-        TempTConstr s args ->
-            case t2 of
-                TempTVar ir -> do
-                    mt <- lift $ readIORef ir
-                    case val mt of
-                        Uninstantiated _ -> lift $ writeIORef ir lt1
-                        _ -> unify lt1 mt
-                TempTConstr s2 args2 ->
-                    if s == s2 && length args == length args2 then
-                        mapM_ (uncurry unify) (zip args args2)
-                    else throwE $ show pos ++ ": can't unify " ++ s ++ " and " ++ s2
-                Uninstantiated _ -> undefined
-        Uninstantiated _ -> undefined
-
-collectFreeVars :: Located TempMonotype -> IO [IORef (Located TempMonotype)]
-collectFreeVars mt =
-    case val mt of
-        TempTVar ir -> readIORef ir >>= \t->case val t of
-            TempTVar _ -> collectFreeVars t
-            TempTConstr _ mts -> mapM collectFreeVars mts >>= return . concat
-            Uninstantiated n -> return [ir]
-        TempTConstr _ mts -> mapM collectFreeVars mts >>= return . concat
-        Uninstantiated _ -> undefined
-
-generalize :: Located TempPolyType -> IO TempPolyType
-generalize pt = copy pt >>= \cp-> case val cp of
-    TempMono mt -> collectFreeVars (Loc mt (start cp)) >>= \vars->return $ foldr TempForall (TempMono mt) vars
-    TempForall ir pt2 -> generalize Loc{val=pt2, start=start cp}
+        TVar id -> do
+            -- debug "unifying with tvar on left"
+            out <- run $ writeIORef t1io t2
+            run $ strbasetype t1io
+            return out
+        TConstr s ios -> case t2 of
+            Forall vio tio -> unify t1io tio
+            TVar id -> do
+                -- debug "unifying with tvar on right"
+                out <- run $ writeIORef t2io t1
+                run $ strbasetype t2io
+                return out
+            TConstr s2 ios2 ->
+                if s == s2 && length ios == length ios2 then
+                    mapM_ (uncurry unify) $ zip ios ios2
+                else fail $ "failed to unify " ++ s ++ " and " ++ s2
+        Forall vio tio -> unify tio t2io

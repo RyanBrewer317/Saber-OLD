@@ -30,6 +30,16 @@
   (major1) == 0 && (major2) <  6 || \
   (major1) == 0 && (major2) == 6 && (minor) <= 2)
 #endif /* MIN_VERSION_containers */
+/* package directory-1.3.6.0 */
+#ifndef VERSION_directory
+#define VERSION_directory "1.3.6.0"
+#endif /* VERSION_directory */
+#ifndef MIN_VERSION_directory
+#define MIN_VERSION_directory(major1,major2,minor) (\
+  (major1) <  1 || \
+  (major1) == 1 && (major2) <  3 || \
+  (major1) == 1 && (major2) == 3 && (minor) <= 6)
+#endif /* MIN_VERSION_directory */
 /* package llvm-hs-pretty-0.9.0.0 */
 #ifndef VERSION_llvm_hs_pretty
 #define VERSION_llvm_hs_pretty "0.9.0.0"
@@ -60,16 +70,26 @@
   (major1) == 3 && (major2) <  1 || \
   (major1) == 3 && (major2) == 1 && (minor) <= 16)
 #endif /* MIN_VERSION_parsec */
-/* package process-1.6.9.0 */
+/* package process-1.6.17.0 */
 #ifndef VERSION_process
-#define VERSION_process "1.6.9.0"
+#define VERSION_process "1.6.17.0"
 #endif /* VERSION_process */
 #ifndef MIN_VERSION_process
 #define MIN_VERSION_process(major1,major2,minor) (\
   (major1) <  1 || \
   (major1) == 1 && (major2) <  6 || \
-  (major1) == 1 && (major2) == 6 && (minor) <= 9)
+  (major1) == 1 && (major2) == 6 && (minor) <= 17)
 #endif /* MIN_VERSION_process */
+/* package sqlite-simple-0.4.18.2 */
+#ifndef VERSION_sqlite_simple
+#define VERSION_sqlite_simple "0.4.18.2"
+#endif /* VERSION_sqlite_simple */
+#ifndef MIN_VERSION_sqlite_simple
+#define MIN_VERSION_sqlite_simple(major1,major2,minor) (\
+  (major1) <  0 || \
+  (major1) == 0 && (major2) <  4 || \
+  (major1) == 0 && (major2) == 4 && (minor) <= 18)
+#endif /* MIN_VERSION_sqlite_simple */
 /* package text-2.0.1 */
 #ifndef VERSION_text
 #define VERSION_text "2.0.1"
@@ -80,16 +100,6 @@
   (major1) == 2 && (major2) <  0 || \
   (major1) == 2 && (major2) == 0 && (minor) <= 1)
 #endif /* MIN_VERSION_text */
-/* package transformers-0.5.6.2 */
-#ifndef VERSION_transformers
-#define VERSION_transformers "0.5.6.2"
-#endif /* VERSION_transformers */
-#ifndef MIN_VERSION_transformers
-#define MIN_VERSION_transformers(major1,major2,minor) (\
-  (major1) <  0 || \
-  (major1) == 0 && (major2) <  5 || \
-  (major1) == 0 && (major2) == 5 && (minor) <= 6)
-#endif /* MIN_VERSION_transformers */
 
 /* tool gcc-11 */
 #ifndef TOOL_VERSION_gcc

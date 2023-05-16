@@ -1,0 +1,17 @@
+This project uses a custom monad defined as: 
+```
+data SB_ a = Err !Int !String | Ok !SBState !a -- where SBState is a record/struct of the pieces of state
+newtype SB a = SB{ runSB :: SBState -> IO (SB_ a) }
+instance Monad SB where
+    return x = SB $ \state->return $ Ok state x
+    a >>= f = SB $ \state-> do
+        res <- runSB a state
+        case res of
+            Err gen2 s -> return $ Err gen2 s
+            Ok state x -> runSB (f x) state
+```
+All the compiler passes are written in terms of this SB monad, to get fresh variable names, do IO operations, and have graceful exceptions.
+It's conceptually the same as applying the ExceptT and StateT monad transformers to the IO monad, but it's slightly more specialized.
+One of the bits of state managed by SB is the Map of types for expressions. 
+That is, the AST in this compiler just holds IDs into Maps that have more information.
+Types are stored with the FBaseType type, which mostly uses the `FTConstr String [FBaseType]` constructor. For example, `FTConstr "Int" []` for the int type.
