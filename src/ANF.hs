@@ -19,7 +19,7 @@ anf ast = uncurry ($) <$> go ast
                 FuncDec id argid e -> do
                     entry <- fresh $ "entrypoint join point for function " ++ show id
                     a <- convert e
-                    a <- closureConvert a
+                    a <- closureConvert Map.empty a
                     (fs, js, a) <- hoist a
                     (fs2, as) <- go stmts
                     dumpTypes
@@ -78,10 +78,8 @@ putAtEnd f e = case e of
     ANFProj i tpl idx cont -> ANFProj i tpl idx $ putAtEnd f cont
     ANFCast i t v cont -> ANFCast i t v $ putAtEnd f cont
 
-closureConvert :: ANFTerm -> SB ANFTerm
-closureConvert t = go t
-    where
-        go t = case t of
+closureConvert :: Map.Map Int FBaseType -> ANFTerm -> SB ANFTerm
+closureConvert retCasts t = case t of
             ANFHalt v -> return t
             ANFFunc id argids body cont -> do
                 env <- fresh $ "closure tuple for function " ++ show id
@@ -102,7 +100,7 @@ closureConvert t = go t
                     FTConstr _ _ -> return False
                 t <- return $ FTConstr "Function" [if swappedArg then FTConstr "Int" [] else argt, if swappedRet then FTConstr "Int" [] else rett]
                 setType id t
-                body2 <- go body
+                body2 <- closureConvert (if swappedRet then Map.insert id rett retCasts else retCasts) body
                 let body3 = fst (foldl' (\(e, i) x->(ANFProj x env i e, i+1)) (body2, 1) free)
                 let body4 = if swappedArg then ANFCast (head argids) argt (ANFVar (head argids)) body3 else body3
                 retVar <- fresh "casting the return value to the right type (closure conversion)"
@@ -111,17 +109,17 @@ closureConvert t = go t
                 i2 <- fresh $ Maybe.fromMaybe "" c
                 setType i2 t
                 setType id $ FTConstr "Tuple" $ t : freets
-                cont2 <- go cont
+                cont2 <- closureConvert (if swappedRet then Map.insert id rett retCasts else retCasts) cont
                 let cont3 = let vs = map ANFVar free in ANFTuple id (ANFGlobal i2:vs) cont2
                 return (ANFFunc i2 (env:argids) body3 cont3)
             ANFJoin id mbVal body cont -> do
-                body2 <- go body
-                cont2 <- go cont
+                body2 <- closureConvert retCasts body
+                cont2 <- closureConvert retCasts cont
                 return (ANFJoin id mbVal body2 cont2)
             ANFJump id mbVal -> return t
             ANFApp id isGlobal fid argids cont ->
                 if isGlobal then
-                    return t
+                    closureConvert retCasts cont >>= \k-> return (ANFApp id isGlobal fid argids k)
                 else do
                     ptr <- fresh $ "projection into closure tuple (application " ++ show id ++ ", tuple "++show fid++")"
                     closureT <- getType fid
@@ -132,7 +130,7 @@ closureConvert t = go t
                             _ -> error ""
                     let (FTConstr "Function" [argt, rett]) = ft
                     setType ptr ft
-                    cont2 <- go cont
+                    cont2 <- closureConvert retCasts cont
                     actualArgT <-case head argids of
                         ANFVar id -> getType id
                         ANFInt n -> return $ FTConstr "Int" []
@@ -143,15 +141,26 @@ closureConvert t = go t
                     closureCast <- fresh "casting the function's closure to an int"
                     argCast <- fresh "casting the argument closure to an int"
                     setType closureCast $ FTConstr "Int" []
-                    let cont3 = 
-                            if castArg then 
-                                ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp id isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont2
-                            else
-                                ANFApp id isGlobal ptr (ANFVar closureCast : argids) cont2
-                    return $ ANFProj ptr fid 0 $ ANFCast closureCast (FTConstr "Int" []) (ANFVar fid) cont3
-            ANFTuple id conjuncts cont -> go cont >>= \t-> return (ANFTuple id conjuncts t)
-            ANFProj id tpl idx cont -> go cont >>= \t-> return (ANFProj id tpl idx t)
-            ANFCast id t v cont -> go cont >>= \k-> return (ANFCast id t v k)
+                    setType argCast $ FTConstr "Int" []
+                    castretid <- fresh "return value before cast closure"
+                    setType castretid $ FTConstr "Int" []
+                    let castingRet = Maybe.isJust $ Map.lookup fid retCasts
+                    let cont3 = case Map.lookup fid retCasts of
+                          Nothing -> cont2
+                          Just t -> ANFCast id t (ANFVar castretid) cont2
+                    let cont4
+                          | castArg && castingRet =
+                            ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
+                          | castArg =
+                            ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
+                          | castingRet =
+                            ANFApp castretid isGlobal ptr (ANFVar closureCast : argids) cont3
+                          | otherwise =
+                            ANFApp id isGlobal ptr (ANFVar closureCast : argids) cont3
+                    return $ ANFCast ptr ft (ANFVar fid) $ ANFCast closureCast (FTConstr "Int" []) (ANFVar fid) cont4
+            ANFTuple id conjuncts cont -> closureConvert retCasts cont >>= \t-> return (ANFTuple id conjuncts t)
+            ANFProj id tpl idx cont -> closureConvert retCasts cont >>= \t-> return (ANFProj id tpl idx t)
+            ANFCast id t v cont -> closureConvert retCasts cont >>= \k-> return (ANFCast id t v k)
 
 hoist :: ANFTerm -> SB (DiffList ANFFunc, DiffList ANFJoin, ANFTerm)
 hoist t = case t of
