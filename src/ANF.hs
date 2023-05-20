@@ -78,27 +78,30 @@ putAtEnd f e = case e of
     ANFProj i tpl idx cont -> ANFProj i tpl idx $ putAtEnd f cont
     ANFCast i t v cont -> ANFCast i t v $ putAtEnd f cont
 
+polymorphicT :: FBaseType
+polymorphicT = FTConstr "Pointer" [FTConstr "Void" []]
+
 closureConvert :: Map.Map Int FBaseType -> ANFTerm -> SB ANFTerm
 closureConvert retCasts t = case t of
             ANFHalt v -> return t
             ANFFunc id argids body cont -> do
                 env <- fresh $ "closure tuple for function " ++ show id
-                setType env $ FTConstr "Int" []
+                setType env polymorphicT
                 let free = filter (`notElem` argids) $ fvs body []
                 freets <- mapM getType free
                 t <- getType id
                 let (FTConstr "Function" [argt, rett]) = t
                 swappedArg <- case argt of
                     FForall _ _ -> undefined
-                    FTVar _ -> undefined
-                    FTConstr "Function" _ -> setType (head argids) (FTConstr "Int" []) >> return True
+                    FTVar _ -> fail $ "type variable found in " ++ show t ++ ", type of func " ++ show id
+                    FTConstr "Function" _ -> setType (head argids) polymorphicT >> return True
                     FTConstr _ _ -> return False
                 swappedRet <- case rett of
                     FForall _ _ -> undefined
                     FTVar _ -> undefined
                     FTConstr "Function" _ -> return True
                     FTConstr _ _ -> return False
-                t <- return $ FTConstr "Function" [if swappedArg then FTConstr "Int" [] else argt, if swappedRet then FTConstr "Int" [] else rett]
+                t <- return $ FTConstr "Function" [if swappedArg then polymorphicT else argt, if swappedRet then polymorphicT else rett]
                 setType id t
                 rett <- return $ case rett of
                     FTConstr "Function" _ -> FTConstr "Tuple" [rett]
@@ -139,28 +142,28 @@ closureConvert retCasts t = case t of
                         ANFInt n -> return $ FTConstr "Int" []
                         ANFGlobal id -> getType id
                     let castArg = case (argt, actualArgT) of
-                            (FTConstr "Int" [], FTConstr "Tuple" _) -> True
+                            (FTConstr "Pointer" [FTConstr "Void" []], FTConstr "Tuple" _) -> True
                             _ -> False
                     closureCast <- fresh "casting the function's closure to an int"
                     argCast <- fresh "casting the argument closure to an int"
-                    setType closureCast $ FTConstr "Int" []
-                    setType argCast $ FTConstr "Int" []
+                    setType closureCast polymorphicT
+                    setType argCast polymorphicT
                     castretid <- fresh "return value before cast closure"
-                    setType castretid $ FTConstr "Int" []
+                    setType castretid polymorphicT
                     let castRet = Maybe.isJust $ Map.lookup fid retCasts
                     let cont3 = case Map.lookup fid retCasts of
                           Nothing -> cont2
                           Just t -> ANFCast id t (ANFVar castretid) cont2
                     let cont4
                           | castArg && castRet =
-                            ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
+                            ANFCast argCast polymorphicT (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
                           | castArg =
-                            ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
+                            ANFCast argCast polymorphicT (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
                           | castRet =
                             ANFApp castretid isGlobal ptr (ANFVar closureCast : argids) cont3
                           | otherwise =
                             ANFApp id isGlobal ptr (ANFVar closureCast : argids) cont3
-                    return $ ANFProj ptr fid 0 $ ANFCast closureCast (FTConstr "Int" []) (ANFVar fid) cont4
+                    return $ ANFProj ptr fid 0 $ ANFCast closureCast polymorphicT (ANFVar fid) cont4
             ANFTuple id conjuncts cont -> closureConvert retCasts cont >>= \t-> return (ANFTuple id conjuncts t)
             ANFProj id tpl idx cont -> closureConvert retCasts cont >>= \t-> return (ANFProj id tpl idx t)
             ANFCast id t v cont -> closureConvert retCasts cont >>= \k-> return (ANFCast id t v k)

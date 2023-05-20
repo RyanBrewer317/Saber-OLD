@@ -42,7 +42,7 @@ instance Applicative SB where
     (<*>) = ap
 
 fresh :: String -> SB Int
-fresh intent = SB $ \state@SBState{gen=gen,freshData=freshData}->putStrLn (show gen ++ ": " ++ intent) >> return (Ok (state{gen=gen + 1, freshData=Map.insert gen intent freshData}) gen)
+fresh intent = SB $ \state@SBState{gen=gen,freshData=freshData}->{-putStrLn (show gen ++ ": " ++ intent) >>-} return (Ok (state{gen=gen + 1, freshData=Map.insert gen intent freshData}) gen)
 
 infixr 4 ?
 (?) :: SB a -> String -> SB a
@@ -57,7 +57,7 @@ run io = SB $ \state-> io >>= \a-> runSB (return a) state
 
 debug :: String -> SB ()
 debug s = SB $ \state-> do
-    putStrLn s
+    -- putStrLn s
     runSB (return ()) state
 
 fail :: String -> SB a
@@ -81,7 +81,7 @@ getType id = SB $ \state@SBState{types=types, gen=gen} -> case Map.lookup id typ
     Nothing -> return $ Err gen $ "tried to get type of unassigned index " ++ show id
 
 dumpTypes :: SB ()
-dumpTypes = SB $ \state@SBState{types=types} -> Ok state <$> print types
+dumpTypes = SB $ \state@SBState{types=types} -> return (Ok state ()) --print types
 
 setTypes :: Map.Map Int FBaseType -> SB ()
 setTypes ts = SB $ \state-> return $ Ok state{types=ts} ()

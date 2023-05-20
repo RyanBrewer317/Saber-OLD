@@ -1,4 +1,4 @@
 def id x: x
 
 def main:
-    (id id)(id 3)
+    (id id)(id 1)

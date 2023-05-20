@@ -15,17 +15,16 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Map as Map
 import System.Environment (getArgs)
 
-getCode :: String -> IO String
-getCode filename = 
-    if null filename then
-        getLine >>= \l -> if null l then return l else ((l ++ "\n") ++) <$> getCode ""
-    else
-        readFile filename
+getCode :: [String] -> IO String
+getCode args = 
+    case args of
+        [] -> getLine >>= \l -> if null l then return l else ((l ++ "\n") ++) <$> getCode []
+        filename:_ -> readFile filename
 
 main :: IO ()
 main = do
     args <- getArgs
-    s <- getCode $ head args
+    s <- getCode args
     case P.run "CLI" parseStmts s of
         Left e -> print e
         Right ast -> do
@@ -36,10 +35,8 @@ main = do
                 ast <- specialize types ast
                 ast <- anf ast
                 mod <- output ast
-                -- let str = TL.unpack $ ppllvm mod
-                -- G.run $ writeFile "cli.ll" str
-                -- G.run $ callCommand "clang cli.ll src/runtime.c"
-                -- G.run $ callCommand "./a.out"
+                G.run $ callCommand "clang -w test2.c src/runtime.c"
+                G.run $ callCommand "./a.out"
                 return ()) SBState{gen=0,sbMain= -1,types=Map.empty,freshData=Map.empty}
             case sb_ of
                 Err gen e -> putStrLn e

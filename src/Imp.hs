@@ -9,29 +9,31 @@ import Control.Monad ((>=>), when, MonadFail ())
 import Data.Data (typeOf)
 import Data.Foldable (forM_, foldrM)
 
-data CType = CIntT | CStructT [CType] | CFuncT CType [CType] | CVoidT | CTConstr String [CType] deriving (Show, Eq)
+data CType = CIntT | CStructT [CType] | CFuncT CType [CType] | CVoidT | CPointerT CType | CTConstr String [CType] deriving (Show, Eq)
 
 data CDecl = CFunc CType String [(CType, String)] String [CStmt] deriving Show
 
 data CStmt = CAssn CType String CExpr String | CReturn CExpr String deriving Show
 
-data CExpr = CInt Int | CIdent String | CApp CExpr [CExpr] | CProj CExpr CExpr | CStruct [CExpr] | CCast CType CExpr deriving Show
+data CExpr = CInt Int | CIdent String | CApp CExpr [CExpr] | CProj CExpr CExpr | CStruct [CExpr] | CCast CType CExpr | CAddr CExpr | CDeref CExpr deriving Show
 
 output :: [ANFFunc] -> SB ()
-output fs = run (putStrLn "\n\n\n") >> mapM outputFunc fs >>= \a -> (run.writeFile "test2.c".unlines . map toCString) a >> typeCheck [] a
+output fs = mapM outputFunc fs >>= \a -> (run.writeFile "test2.c".unlines . map toCString) a >> typeCheck [] a
 
 outputType :: FBaseType -> SB CType
 outputType t = case t of
     FTConstr s args -> case s of
         "Int" -> return CIntT
-        "Tuple" -> mapM outputType args >>= \args2-> return $ CStructT args2
+        "Tuple" -> mapM outputType args >>= \args2-> return $ CPointerT $ CStructT args2
         "Function" -> case args of
             [a,b] -> do
                 a2 <- outputType a
                 b2 <- outputType b
-                return $ CFuncT b2 [CIntT, a2]
+                return $ CFuncT b2 [CPointerT CVoidT, a2]
             _ -> undefined
         "_Void" -> return CVoidT
+        "Void" -> return CVoidT
+        "Pointer" -> CPointerT <$> outputType (head args)
         _ -> mapM outputType args >>= \args2-> return $ CTConstr s args2
     FForall i t -> fail "forall found when generating imperative code"
     FTVar i -> fail "type variable found when generating imperative code"
@@ -74,13 +76,16 @@ outputExpr e = case e of
         rest <- outputExpr cont
         t <- getType id
         t2 <- outputType t
-        return $ CAssn t2 ('l': show id) (CStruct cs) c : rest
+        let castt = case t2 of
+                CPointerT t -> t
+                _ -> error ""
+        return $ CAssn t2 ('l': show id) (CAddr $ CCast castt $ CStruct cs) c : rest
     ANFProj id tpl idx cont -> do
         c <- Maybe.fromMaybe undefined <$> getIntent id
         rest <- outputExpr cont
         t <- getType id
         t2 <- outputType t
-        return $ CAssn t2 ('l':show id) (CProj (CIdent $ 'l':show tpl) (CInt idx)) c : rest
+        return $ CAssn t2 ('l':show id) (CProj (CDeref $ CIdent $ 'l':show tpl) (CInt idx)) c : rest
     ANFCast id t v cont -> do
         c <- Maybe.fromMaybe undefined <$> getIntent id
         rest <- outputExpr cont
@@ -108,22 +113,26 @@ strExpr e = case e of
     CInt i -> show i
     CIdent name -> name
     CApp foo bars -> strExpr foo ++ "(" ++ intercalate ", " (map strExpr bars) ++ ")"
-    CProj e (CInt i) -> strExpr e ++ "->p" ++ show i
+    CProj e (CInt i) -> strExpr e ++ ".p" ++ show i
     CProj e _ -> error ""
     CStruct es -> "{" ++ intercalate ", " (map strExpr es) ++ "}"
     CCast t e -> "("++strTy t++")"++strExpr e
+    CAddr e -> "(&" ++ strExpr e ++ ")"
+    CDeref e -> "(*" ++ strExpr e ++ ")"
 
 strTy :: CType -> String
 strTy ty = case ty of
     CIntT -> "int"
-    CStructT ts -> "struct{" ++ concat (zipWith (\i t -> strDecl t ('p':show i) ++ ";") [0..] ts) ++ "}*"
+    CStructT ts -> "struct{" ++ concat (zipWith (\i t -> strDecl t ('p':show i) ++ ";") [0..] ts) ++ "}"
     CFuncT ret args -> strTy ret ++ "(*)(" ++ intercalate "," (map strTy args) ++ ")"
     CVoidT -> "void"
+    CPointerT t -> strTy t ++ "*"
     CTConstr s ts -> s ++ if null ts then "" else "<" ++ intercalate ", " (map strTy ts) ++ ">"
 
 strDecl :: CType -> String -> String
 strDecl ty ident = case ty of
     CFuncT ret args -> strTy ret ++ " (*" ++ ident ++ ")(" ++ intercalate "," (map strTy args) ++ ")"
+    CPointerT t -> strTy t ++ " *" ++ ident
     _ -> strTy ty ++ " " ++ ident
 
 typeCheck :: [(String, CType)] -> [CDecl] -> SB ()
@@ -171,3 +180,7 @@ typeCheck scope lines = case lines of
             CProj _ _ -> fail $ "projection with non-constant argument in C codegen (" ++ strExpr e ++ ")"
             CStruct es -> CStructT <$> mapM (typeOf scope) es
             CCast t e -> return t
+            CAddr e -> CPointerT <$> typeOf scope e
+            CDeref e -> typeOf scope e >>= \case
+                CPointerT t -> return t
+                _ -> fail $ "dereferencing nonpointer " ++ strExpr e
