@@ -100,6 +100,9 @@ closureConvert retCasts t = case t of
                     FTConstr _ _ -> return False
                 t <- return $ FTConstr "Function" [if swappedArg then FTConstr "Int" [] else argt, if swappedRet then FTConstr "Int" [] else rett]
                 setType id t
+                rett <- return $ case rett of
+                    FTConstr "Function" _ -> FTConstr "Tuple" [rett]
+                    _ -> rett
                 body2 <- closureConvert (if swappedRet then Map.insert id rett retCasts else retCasts) body
                 let body3 = fst (foldl' (\(e, i) x->(ANFProj x env i e, i+1)) (body2, 1) free)
                 let body4 = if swappedArg then ANFCast (head argids) argt (ANFVar (head argids)) body3 else body3
@@ -144,20 +147,20 @@ closureConvert retCasts t = case t of
                     setType argCast $ FTConstr "Int" []
                     castretid <- fresh "return value before cast closure"
                     setType castretid $ FTConstr "Int" []
-                    let castingRet = Maybe.isJust $ Map.lookup fid retCasts
+                    let castRet = Maybe.isJust $ Map.lookup fid retCasts
                     let cont3 = case Map.lookup fid retCasts of
                           Nothing -> cont2
                           Just t -> ANFCast id t (ANFVar castretid) cont2
                     let cont4
-                          | castArg && castingRet =
+                          | castArg && castRet =
                             ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
                           | castArg =
                             ANFCast argCast (FTConstr "Int" []) (head argids) $ ANFApp castretid isGlobal ptr (ANFVar closureCast : ANFVar argCast : tail argids) cont3
-                          | castingRet =
+                          | castRet =
                             ANFApp castretid isGlobal ptr (ANFVar closureCast : argids) cont3
                           | otherwise =
                             ANFApp id isGlobal ptr (ANFVar closureCast : argids) cont3
-                    return $ ANFCast ptr ft (ANFVar fid) $ ANFCast closureCast (FTConstr "Int" []) (ANFVar fid) cont4
+                    return $ ANFProj ptr fid 0 $ ANFCast closureCast (FTConstr "Int" []) (ANFVar fid) cont4
             ANFTuple id conjuncts cont -> closureConvert retCasts cont >>= \t-> return (ANFTuple id conjuncts t)
             ANFProj id tpl idx cont -> closureConvert retCasts cont >>= \t-> return (ANFProj id tpl idx t)
             ANFCast id t v cont -> closureConvert retCasts cont >>= \k-> return (ANFCast id t v k)

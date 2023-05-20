@@ -2,7 +2,7 @@
 module Imp where
 
 import Grammar
-import Data.List (intercalate)
+import Data.List (intercalate, intersperse)
 import Prelude hiding (fail)
 import qualified Data.Maybe as Maybe
 import Control.Monad ((>=>), when, MonadFail ())
@@ -18,7 +18,7 @@ data CStmt = CAssn CType String CExpr String | CReturn CExpr String deriving Sho
 data CExpr = CInt Int | CIdent String | CApp CExpr [CExpr] | CProj CExpr CExpr | CStruct [CExpr] | CCast CType CExpr deriving Show
 
 output :: [ANFFunc] -> SB ()
-output fs = run (putStrLn "\n\n\n") >> mapM outputFunc fs >>= \a -> (run.putStrLn.unlines. map toCString) a >> typeCheck [] a
+output fs = run (putStrLn "\n\n\n") >> mapM outputFunc fs >>= \a -> (run.writeFile "test2.c".unlines . map toCString) a >> typeCheck [] a
 
 outputType :: FBaseType -> SB CType
 outputType t = case t of
@@ -96,19 +96,19 @@ outputVal v = case v of
 
 toCString :: CDecl -> String
 toCString c = case c of
-    CFunc ty name args comment body -> strTy ty ++ " " ++ name ++ "(" ++ intercalate ", " (map (\(t,a)->strTy t ++ " " ++ a) args) ++ ") {\n    // " ++ comment ++ "\n    " ++ intercalate "\n    " (map strStmt body) ++ "\n}"
+    CFunc retT name args comment body -> strTy retT ++ " " ++ name ++ "(" ++ intercalate ", " (map (uncurry strDecl) args) ++ ") {\n    // " ++ comment ++ "\n    " ++ intercalate "\n    " (map strStmt body) ++ "\n}"
 
 strStmt :: CStmt -> [Char]
 strStmt stmt = case stmt of
-    CAssn t name expr comment -> strTy t ++ " " ++ name ++ " = " ++ strExpr expr ++ "; // " ++ comment
+    CAssn t name expr comment -> strDecl t name ++ " = " ++ strExpr expr ++ "; // " ++ comment
     CReturn e comment -> "return " ++ strExpr e ++ "; // " ++ comment
-    
+
 strExpr :: CExpr -> [Char]
 strExpr e = case e of
     CInt i -> show i
     CIdent name -> name
     CApp foo bars -> strExpr foo ++ "(" ++ intercalate ", " (map strExpr bars) ++ ")"
-    CProj e (CInt i) -> strExpr e ++ "[" ++ show i ++ "]"
+    CProj e (CInt i) -> strExpr e ++ "->p" ++ show i
     CProj e _ -> error ""
     CStruct es -> "{" ++ intercalate ", " (map strExpr es) ++ "}"
     CCast t e -> "("++strTy t++")"++strExpr e
@@ -116,10 +116,15 @@ strExpr e = case e of
 strTy :: CType -> String
 strTy ty = case ty of
     CIntT -> "int"
-    CStructT ts -> "{" ++ intercalate "," (map strTy ts) ++ "}"
-    CFuncT ret args -> "(" ++ intercalate "," (map strTy args) ++ ")->" ++ strTy ret
+    CStructT ts -> "struct{" ++ concat (zipWith (\i t -> strDecl t ('p':show i) ++ ";") [0..] ts) ++ "}*"
+    CFuncT ret args -> strTy ret ++ "(*)(" ++ intercalate "," (map strTy args) ++ ")"
     CVoidT -> "void"
     CTConstr s ts -> s ++ if null ts then "" else "<" ++ intercalate ", " (map strTy ts) ++ ">"
+
+strDecl :: CType -> String -> String
+strDecl ty ident = case ty of
+    CFuncT ret args -> strTy ret ++ " (*" ++ ident ++ ")(" ++ intercalate "," (map strTy args) ++ ")"
+    _ -> strTy ty ++ " " ++ ident
 
 typeCheck :: [(String, CType)] -> [CDecl] -> SB ()
 typeCheck scope lines = case lines of
@@ -128,9 +133,9 @@ typeCheck scope lines = case lines of
         foldrM (\stmt scope->case stmt of
             CAssn ty name e comment -> do
                 t <- typeOf scope e
-                if t == ty then 
+                if t == ty then
                     return $ (name, ty) : scope
-                else 
+                else
                     fail $ "variable " ++ name ++ " assigned to expr of wrong type (" ++ strTy ty ++ " != " ++ strTy t ++ " in `" ++ strStmt stmt ++ "`)"
             CReturn e comment -> do
                 t <- typeOf scope e
@@ -150,17 +155,17 @@ typeCheck scope lines = case lines of
                     when (length args /= length es) $ fail $ "function " ++ strExpr e2 ++ " called with too few arguments in C codegen (" ++ strExpr e ++ ")"
                     forM_ (zip args es) $ \(t,e3)-> do
                         t2 <- typeOf scope e3
-                        if t == t2 then 
-                            return() 
-                        else 
+                        if t == t2 then
+                            return()
+                        else
                             fail $ "args are wrong type in C codegen ("++strTy t++" != "++strTy t2++" in " ++ strExpr e ++ ", arg `"++strExpr e3++": "++strTy t2++"`)"
                     return ret
                 t -> fail $ "non-function called as function in C codegen ("++strTy t++")"
             CProj e2 (CInt i) -> typeOf scope e2 >>= \case
-                CStructT ts -> 
-                    if length ts > i then 
-                        return (ts !! i) 
-                    else 
+                CStructT ts ->
+                    if length ts > i then
+                        return (ts !! i)
+                    else
                         fail $ "projection "++show i++" into struct that is out of bounds "++show (length ts)++" in C codegen (" ++ strExpr e ++ ")"
                 t -> fail $ "projection into nonstruct "++strTy t++" in C codegen"
             CProj _ _ -> fail $ "projection with non-constant argument in C codegen (" ++ strExpr e ++ ")"
