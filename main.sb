@@ -1,4 +1,6 @@
+def t x y: x
+
 def id x: x
 
 def main:
-    (id id)(id 1)
+    (t 1) id

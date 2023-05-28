@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant flip" #-}
 module Main where
 import Parser as P
 import AST (buildSB)
@@ -15,8 +17,10 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Map as Map
 import System.Environment (getArgs)
 
+-- | getCode produces the original source code for compilation, 
+--   based on the command line arguments
 getCode :: [String] -> IO String
-getCode args = 
+getCode args =
     case args of
         [] -> getLine >>= \l -> if null l then return l else ((l ++ "\n") ++) <$> getCode []
         filename:_ -> readFile filename
@@ -28,8 +32,14 @@ main = do
     case P.run "CLI" parseStmts s of
         Left e -> print e
         Right ast -> do
+            -- parsing succeeded, the AST is stored in `ast`.
+
+            -- clear the state of the database
+            -- the sqlite database state management is a failed experiment I think, which will get removed in the future.
             removeFile "saber.db"
-            sb_ <- runSB (do
+
+            -- run the compiler on the AST
+            sb_ <- flip runSB SBState{gen=0,sbMain= -1,types=Map.empty,freshData=Map.empty} $ do
                 ast <- buildSB ast
                 types <- assignBasicTypes ast
                 ast <- specialize types ast
@@ -37,7 +47,7 @@ main = do
                 mod <- output ast
                 G.run $ callCommand "clang -w test2.c src/runtime.c"
                 G.run $ callCommand "./a.out"
-                return ()) SBState{gen=0,sbMain= -1,types=Map.empty,freshData=Map.empty}
+                return ()
             case sb_ of
                 Err gen e -> putStrLn e
                 Ok state () -> return ()

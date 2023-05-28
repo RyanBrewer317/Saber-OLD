@@ -1,30 +1,30 @@
-int g33(void *l31, int l22) {
-    // specialization of 0
-    return l22; // specialization of 0 (arg 1)
+int g40(void *l38, int l29) {
+    // specialization of 5
+    return l29; // specialization of 5 (arg 6)
 }
-int g29(void *l27, int l20) {
-    // specialization of 0
-    return l20; // specialization of 0 (arg 1)
+int g36(void *l34, int l27) {
+    // specialization of 5
+    return l27; // specialization of 5 (arg 6)
 }
-void* g26(void *l24, void *l18) {
-    // specialization of 0
-    return l18; // specialization of 0 (arg 1)
+void* g33(void *l31, void *l25) {
+    // specialization of 5
+    return l25; // specialization of 5 (arg 6)
 }
 int main() {
     // main
-    struct{void* (*p0)(void*,void*);} *l17 = (&(struct{void* (*p0)(void*,void*);}){g26}); // specialization of 0
-    struct{int (*p0)(void*,int);} *l19 = (&(struct{int (*p0)(void*,int);}){g29}); // specialization of 0
-    void* (*l30)(void*,void*) = (*l17).p0; // projection into closure tuple (application 6, tuple 17)
-    void *l42 = (void*)l17; // casting the function's closure to an int
-    void *l43 = (void*)l19; // casting the argument closure to an int
-    void *l44 = l30(l42, l43); // return value before cast closure
-    struct{int (*p0)(void*,int);} *l6 = (struct{int (*p0)(void*,int);}*)l44; // application at "CLI" (line 3, column 9)
-    struct{int (*p0)(void*,int);} *l21 = (&(struct{int (*p0)(void*,int);}){g33}); // specialization of 0
-    int (*l34)(void*,int) = (*l21).p0; // projection into closure tuple (application 9, tuple 21)
-    void *l39 = (void*)l21; // casting the function's closure to an int
-    int l9 = l34(l39, 1); // application at "CLI" (line 3, column 16)
-    int (*l35)(void*,int) = (*l6).p0; // projection into closure tuple (application 5, tuple 6)
-    void *l36 = (void*)l6; // casting the function's closure to an int
-    int l5 = l35(l36, l9); // application at "CLI" (line 3, column 12)
-    return l5; // application at "CLI" (line 3, column 12)
+    struct{void* (*p0)(void*,void*);} *l24 = (&(struct{void* (*p0)(void*,void*);}){g33}); // specialization of 5
+    struct{int (*p0)(void*,int);} *l26 = (&(struct{int (*p0)(void*,int);}){g36}); // specialization of 5
+    void* (*l37)(void*,void*) = (*l24).p0; // projection into closure tuple (application 11, tuple 24)
+    void *l49 = (void*)l24; // casting the function's closure to an int
+    void *l50 = (void*)l26; // casting the argument closure to an int
+    void *l51 = l37(l49, l50); // return value before cast closure
+    struct{int (*p0)(void*,int);} *l11 = (struct{int (*p0)(void*,int);}*)l51; // application at "CLI" (line 6, column 9)
+    struct{int (*p0)(void*,int);} *l28 = (&(struct{int (*p0)(void*,int);}){g40}); // specialization of 5
+    int (*l41)(void*,int) = (*l28).p0; // projection into closure tuple (application 14, tuple 28)
+    void *l46 = (void*)l28; // casting the function's closure to an int
+    int l14 = l41(l46, 1); // application at "CLI" (line 6, column 16)
+    int (*l42)(void*,int) = (*l11).p0; // projection into closure tuple (application 10, tuple 11)
+    void *l43 = (void*)l11; // casting the function's closure to an int
+    int l10 = l42(l43, l14); // application at "CLI" (line 6, column 12)
+    return l10; // application at "CLI" (line 6, column 12)
 }
